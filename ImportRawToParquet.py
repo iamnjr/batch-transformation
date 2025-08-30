@@ -1,5 +1,7 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, explode
+from pyspark.sql.functions import col, explode, to_date
+from pyspark.sql.functions import round
+from pyspark.sql.functions import to_date, sum as _sum
 
 # Initialize Spark
 spark = SparkSession.builder \
@@ -46,3 +48,28 @@ carts_flat = carts_df.select(
     col("product.productId").alias("product_id"),
     col("product.quantity").alias("quantity")
 )
+
+cart_products = carts_flat.join(products_df, carts_flat.product_id == products_df.id).join(user_flat, "user_id")
+
+cart_products = cart_products.withColumn(
+    "total_price", round(col("price") * col("quantity"), 2)
+)
+
+
+daily_sales = cart_products.groupBy(to_date("date").alias("order_date")) \
+                           .agg(_sum("total_price").alias("daily_revenue"))
+
+daily_sales.show(20,False)
+daily_sales.printSchema()
+
+top_products = cart_products.groupBy("title") \
+                            .agg(_sum("quantity").alias("total_sold")) \
+                            .orderBy(col("total_sold").desc())
+top_products.show(20,False)
+top_products.printSchema()
+
+output_path = "/Users/niranjankashyap/PycharmProjects/Batch-Transformation/data/silver"
+
+daily_sales.write.mode("overwrite").parquet(f"{output_path}/daily_sales")
+top_products.write.mode("overwrite").parquet(f"{output_path}/top_products")
+cart_products.write.mode("overwrite").parquet(f"{output_path}/cart_details")
